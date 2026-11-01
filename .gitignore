@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Collected data and databases (live on the VPS, synced separately)
+data/
+*.duckdb
+*.duckdb.wal
+
+# Local-only agent notes
+CLAUDE.local.md

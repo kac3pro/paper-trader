@@ -1,0 +1,1 @@
+This is a root folder for a polymarket paper trader. for a broad strategy and architecture use ARCHITECTURE.md. I want to build this step by step, so i will ask you to work in small, manageable pieces, so that I can also learn from the experience. 
