@@ -422,7 +422,16 @@ Baselines to report next to EMOS: climatology, raw ensemble frequencies (no cali
 
 These need answers before going live. They decide whether live features will match training.
 
-1. **Inputs:** which ensemble (ECMWF IFS ENS? which resolution? from which provider?), which run (00Z/12Z), which lead time? Live features must be computed **exactly** as they were in training.
+**Answered 2026-11-02:**
+- **Ensemble:** NOAA **GEFS**, 31 members, via the dynamical.org point API (`POST https://api.dynamical.org/v1/forecasts`, product `noaa-gefs-forecast-35-day`, no API key, reachable over IPv6). Only 00Z runs exist in this product, and history goes back to 2020-10-01.
+- **Run and leads:** the **00Z** run, using the 3-hourly and 6-hourly steps in the **24–48 h** lead window (day-ahead).
+- **Resolution day:** Polymarket counts a METAR if its timestamp "converted to the station's local time (including any daylight-saving shift in effect), falls on the observation date". So the **Warsaw local day** is correct.
+
+**Observed in the API (2026-11-02):** `maximum_temperature_2m` repeats in pairs (e.g. lead 3 h → 7.0, lead 6 h → 7.0). This suggests GEFS Tmax is a running max that resets every 6 h: the 3 h step covers the 3 h since the last reset, the 6 h step covers the full 6 h. The Warsaw local day for the 00Z run of D−1 is lead **23–47 h** (CET) or **22–46 h** (CEST), not 24–48 h. Confirm which window training used. Live features must use the same one.
+
+**Still open:**
+
+1. **Inputs:** which variable (`temperature_2m` or `maximum_temperature_2m`), exactly which lead steps, and how the daily max was formed from them. Live features must be computed **exactly** as they were in training.
 2. **Target:** was it trained on the **EPWA METAR max (whole degrees, half-hourly)**, or on SYNOP/IMGW Tmax, or ERA5? If not on the METAR max, expect a systematic warm bias against what the market settles on. Re-fit or add a correction.
 3. **Day definition:** was Tmax computed over the Warsaw local day, or 00–24 UTC (or 06–18 UTC SYNOP windows)?
 4. **Distribution family and parameterization:** Normal or logistic, and how σ depends on ensemble spread. Are the coefficients seasonal or fit over a rolling window?
