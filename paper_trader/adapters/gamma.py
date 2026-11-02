@@ -34,9 +34,18 @@ def warsaw_event_slug(target_date: date) -> str:
     return f"highest-temperature-in-warsaw-on-{month}-{target_date.day}-{target_date.year}"
 
 
-def fetch_event(client: httpx.Client, slug: str) -> dict[str, Any] | None:
-    """Fetch one event by slug. Returns the raw event JSON, or None if it doesn't exist."""
-    response = client.get(f"{BASE_URL}/events", params={"slug": slug})
+def get_event_response(client: httpx.Client, slug: str) -> httpx.Response:
+    """Request one event by slug. Returns the response untouched, so it can be archived."""
+    return client.get(f"{BASE_URL}/events", params={"slug": slug})
+
+
+def event_from_response(response: httpx.Response) -> dict[str, Any] | None:
+    """Extract the raw event JSON from a /events response, or None if no event matched."""
     response.raise_for_status()
     events = response.json()
     return events[0] if events else None
+
+
+def fetch_event(client: httpx.Client, slug: str) -> dict[str, Any] | None:
+    """Fetch one event by slug without archiving. Returns the raw event JSON, or None."""
+    return event_from_response(get_event_response(client, slug))

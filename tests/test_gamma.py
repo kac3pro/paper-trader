@@ -2,8 +2,14 @@ import json
 from datetime import date
 
 import httpx
+import pytest
 
-from paper_trader.adapters.gamma import fetch_event, warsaw_event_slug
+from paper_trader.adapters.gamma import (
+    event_from_response,
+    fetch_event,
+    get_event_response,
+    warsaw_event_slug,
+)
 
 
 def test_warsaw_event_slug():
@@ -40,3 +46,11 @@ def test_fetch_event_returns_raw_event(gamma_events_response):
 def test_fetch_event_returns_none_when_missing():
     with _client_returning([], []) as client:
         assert fetch_event(client, "no-such-event") is None
+
+
+def test_event_from_response_raises_on_http_error():
+    transport = httpx.MockTransport(lambda _: httpx.Response(503, text="unavailable"))
+    with httpx.Client(transport=transport) as client:
+        response = get_event_response(client, "any")
+    with pytest.raises(httpx.HTTPStatusError):
+        event_from_response(response)
