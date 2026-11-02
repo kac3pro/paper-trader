@@ -6,6 +6,8 @@ Notes on /api/data/metar?format=raw (checked 2026-11-02):
 - Plain text, one report per line, newest first, each prefixed "METAR" or "SPECI".
 - No data for the window returns 204 with an empty body.
 - The service occasionally answers 502 from its gateway; the next poll recovers.
+- Rarely it answers 200 with a stale window (seen 2026-11-02: reports ~38 h old). Not an
+  error for us: the warehouse de-duplicates reports and keeps the earliest first-seen time.
 """
 
 import httpx

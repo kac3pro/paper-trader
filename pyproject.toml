@@ -4,12 +4,16 @@ version = "0.1.0"
 description = "Polymarket paper trader for the Warsaw max-temperature market"
 requires-python = ">=3.12"
 dependencies = [
-    "duckdb>=1.1",
+    "duckdb>=2.0",
     "httpx>=0.28",
+    "pytz>=2026.6",
 ]
 
 [dependency-groups]
 dev = [
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.11.2",
+    "pandas>=3.1.0",
     "pytest>=8.3",
     "ruff>=0.8",
 ]

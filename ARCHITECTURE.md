@@ -82,6 +82,9 @@ A DuckDB database file allows **either one read-write process, or many read-only
 ### Alternative, if separate processes are ever needed
 Writers emit Parquet files (written to a temp file, then atomically renamed), and DuckDB queries them as a read-only "lake" (`read_parquet('data/books/date=*/*.parquet')`). This adds more moving parts (compacting many small files), so it's not used in v1.
 
+### Current state (2026-11-02): warehouse built offline from the raw archive
+Until the trader runs live, nothing writes DuckDB continuously. The collector only writes the raw archive. `uv run python -m paper_trader.apps.build_db` rebuilds `data/warehouse.duckdb` **from scratch** (schema in `paper_trader/store/schema.sql`). It writes to a temp file and swaps it in, so open readers are unaffected. The usual flow is: `rsync` `data/raw/` from the VPS → build locally → explore in `notebooks/explore.ipynb`. A full rebuild re-parses everything, so expect it to get slower over months. Make it incremental when that starts to hurt.
+
 ---
 
 ## 5. Data sources and collection schedule

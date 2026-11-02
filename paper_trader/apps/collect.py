@@ -19,7 +19,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -27,11 +26,11 @@ from paper_trader.adapters.clob import get_books_response
 from paper_trader.adapters.gamma import event_from_response, get_event_response, warsaw_event_slug
 from paper_trader.adapters.metar import get_metar_response
 from paper_trader.domain.market import Event, parse_event
+from paper_trader.domain.time import warsaw_date
 from paper_trader.store.raw import append_record, record_from_response
 
 log = logging.getLogger("paper_trader.collect")
 
-WARSAW = ZoneInfo("Europe/Warsaw")
 SOURCE_EVENTS = "gamma_events"
 SOURCE_BOOKS = "clob_books"
 SOURCE_METAR = "metar_epwa"
@@ -55,13 +54,9 @@ class CollectorState:
 # --- pure helpers -------------------------------------------------------------------------
 
 
-def warsaw_today(now: datetime) -> date:
-    return now.astimezone(WARSAW).date()
-
-
 def target_dates(now: datetime, days_ahead: int = 2) -> tuple[date, ...]:
     """Warsaw-local dates whose events we track: today through today + days_ahead."""
-    today = warsaw_today(now)
+    today = warsaw_date(now)
     return tuple(today + timedelta(days=i) for i in range(days_ahead + 1))
 
 
@@ -161,7 +156,7 @@ def run_cycle(
             state, events=merge_events(state.events, fresh, dates), events_refreshed_at=now
         )
         log.info("tracking events: %s", [e.target_date.isoformat() for e in state.events])
-    collect_books(client, root, yes_token_ids(state.events, warsaw_today(now)))
+    collect_books(client, root, yes_token_ids(state.events, warsaw_date(now)))
     if is_due(state.metar_fetched_at, now, schedule.metar):
         collect_metar(client, root)
         state = replace(state, metar_fetched_at=now)
