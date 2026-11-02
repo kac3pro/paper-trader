@@ -2,10 +2,12 @@
 
     uv run python -m paper_trader.apps.collect --data-dir data/raw
 
-Every cycle (default 2 min) it fetches the order books of all tracked brackets.
+Every cycle (default 2 min) it fetches the order books of all brackets still trading.
 Every 15 min it also re-fetches the events themselves (which archives market status:
-prices, acceptingOrders, closed, ...). Tracked events are today, D+1 and D+2 in
-Warsaw local time. Every 10 min it fetches the last 6 hours of EPWA METARs.
+prices, acceptingOrders, closed, and finally the official result). Events are fetched for
+today, D+1 and D+2 in Warsaw local time, and past events keep being fetched until
+Polymarket has resolved them (normally ~20 min after Warsaw midnight; given up after
+7 days). Every 10 min it fetches the last 6 hours of EPWA METARs.
 
 Every response, including errors, goes to the raw archive. A failed request is logged
 and skipped; the loop never stops because of one.
@@ -35,6 +37,10 @@ SOURCE_EVENTS = "gamma_events"
 SOURCE_BOOKS = "clob_books"
 SOURCE_METAR = "metar_epwa"
 
+# How long past events are remembered. Unresolved ones are re-fetched for this long; the
+# market rules allow up to 7 days for a corrected resolution source.
+KEEP_DAYS = 7
+
 
 @dataclass(frozen=True)
 class Schedule:
@@ -60,6 +66,27 @@ def target_dates(now: datetime, days_ahead: int = 2) -> tuple[date, ...]:
     return tuple(today + timedelta(days=i) for i in range(days_ahead + 1))
 
 
+def tracked_window(now: datetime) -> tuple[date, ...]:
+    """Dates of events kept in memory: KEEP_DAYS ago through D+2. Resolved past events stay
+    remembered (so they aren't fetched again) until they fall out of this window."""
+    today = warsaw_date(now)
+    first = today - timedelta(days=KEEP_DAYS)
+    return tuple(first + timedelta(days=i) for i in range(KEEP_DAYS + len(target_dates(now))))
+
+
+def dates_to_refresh(events: Iterable[Event], now: datetime) -> tuple[date, ...]:
+    """Dates whose events should be fetched now: today through D+2, plus every past date in
+    the window that isn't known to be resolved. Yesterday is always included unless known
+    resolved, which also covers a restart between Warsaw midnight and resolution."""
+    events = list(events)
+    today = warsaw_date(now)
+    window = set(tracked_window(now))
+    resolved = {e.target_date for e in events if e.resolved}
+    past = {today - timedelta(days=1)} | {e.target_date for e in events if e.target_date < today}
+    pending = {d for d in past if d in window and d not in resolved}
+    return tuple(sorted(set(target_dates(now)) | pending))
+
+
 def is_due(last: datetime | None, now: datetime, interval: timedelta) -> bool:
     """True if something last done at `last` (None = never) should be done again."""
     return last is None or now - last >= interval
@@ -75,9 +102,10 @@ def merge_events(
     return tuple(by_date[d] for d in sorted(by_date) if d in wanted)
 
 
-def yes_token_ids(events: Iterable[Event], today: date) -> list[str]:
-    """YES tokens of every bracket of events from `today` onwards."""
-    return [b.yes_token_id for e in events if e.target_date >= today for b in e.brackets]
+def open_yes_token_ids(events: Iterable[Event]) -> list[str]:
+    """YES tokens of every bracket of events that are still trading. Trading continues
+    past the target date until resolution, and those final books are the closing prices."""
+    return [b.yes_token_id for e in events if not e.closed for b in e.brackets]
 
 
 # --- impure shell -------------------------------------------------------------------------
@@ -100,6 +128,20 @@ def refresh_events(client: httpx.Client, root: Path, dates: Iterable[date]) -> l
         except (ValueError, KeyError) as exc:  # bad JSON or unexpected shape
             log.error("%s: could not parse event: %s", slug, exc)
     return events
+
+
+def log_resolution_changes(old: Iterable[Event], new: Iterable[Event]) -> None:
+    """Log newly resolved events, and unresolved ones given up on (fell out of the window)."""
+    new_by_date = {e.target_date: e for e in new}
+    for e in old:
+        fresh = new_by_date.get(e.target_date)
+        if fresh is None and not e.resolved:
+            log.warning("giving up on %s: still unresolved after %d days", e.slug, KEEP_DAYS)
+    old_resolved = {e.target_date for e in old if e.resolved}
+    for e in new_by_date.values():
+        if e.resolved and e.target_date not in old_resolved:
+            winner = next(b.label for b in e.brackets if b.market_id == e.winner_market_id)
+            log.info("%s resolved: %s", e.slug, winner)
 
 
 def collect_books(client: httpx.Client, root: Path, token_ids: list[str]) -> None:
@@ -129,13 +171,15 @@ def run_cycle(
     A failed fetch still counts as done: it is retried at its next interval, not every cycle.
     """
     if is_due(state.events_refreshed_at, now, schedule.events):
-        dates = target_dates(now)
-        fresh = refresh_events(client, root, dates)
-        state = replace(
-            state, events=merge_events(state.events, fresh, dates), events_refreshed_at=now
+        fresh = refresh_events(client, root, dates_to_refresh(state.events, now))
+        events = merge_events(state.events, fresh, tracked_window(now))
+        log_resolution_changes(state.events, events)
+        state = replace(state, events=events, events_refreshed_at=now)
+        log.info(
+            "tracking events: %s",
+            [f"{e.target_date}{' (resolved)' if e.resolved else ''}" for e in state.events],
         )
-        log.info("tracking events: %s", [e.target_date.isoformat() for e in state.events])
-    collect_books(client, root, yes_token_ids(state.events, warsaw_date(now)))
+    collect_books(client, root, open_yes_token_ids(state.events))
     if is_due(state.metar_fetched_at, now, schedule.metar):
         collect_metar(client, root)
         state = replace(state, metar_fetched_at=now)

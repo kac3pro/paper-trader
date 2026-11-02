@@ -1,9 +1,12 @@
+import copy
+import json
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from itertools import pairwise
 
 import pytest
 
-from paper_trader.domain.market import parse_bracket, parse_event
+from paper_trader.domain.market import parse_bracket, parse_event, resolved_winner
 
 
 @pytest.mark.parametrize(
@@ -54,3 +57,44 @@ def test_parse_event_maps_yes_and_no_tokens(gamma_events_response):
     assert bracket.yes_token_id in raw_market["clobTokenIds"]
     assert bracket.no_token_id in raw_market["clobTokenIds"]
     assert bracket.yes_token_id != bracket.no_token_id
+
+
+def test_open_event_is_not_resolved(gamma_events_response):
+    event = parse_event(gamma_events_response[0])
+    assert event.closed is False
+    assert event.winner_market_id is None
+    assert not event.resolved
+
+
+def test_resolved_event_has_a_winner(gamma_resolved_response):
+    event = parse_event(gamma_resolved_response[0])
+    winner = next(b for b in event.brackets if b.market_id == event.winner_market_id)
+    assert event.closed is True
+    assert event.resolved
+    assert winner.label == "9°C"
+
+
+def _with_prices(raw: dict, yes_prices: dict[str, str]) -> dict:
+    """Copy of a raw event with some brackets' YES/NO prices replaced, by label."""
+    raw = copy.deepcopy(raw)
+    for m in raw["markets"]:
+        if m["groupItemTitle"] in yes_prices:
+            yes = yes_prices[m["groupItemTitle"]]
+            m["outcomePrices"] = json.dumps([yes, str(1 - Decimal(yes))])
+    return raw
+
+
+def test_closed_but_not_settled_has_no_winner(gamma_resolved_response):
+    raw = _with_prices(gamma_resolved_response[0], {"9°C": "0.97", "10°C": "0.03"})
+    assert resolved_winner(raw) is None
+
+
+def test_two_winners_is_not_a_resolution(gamma_resolved_response):
+    raw = _with_prices(gamma_resolved_response[0], {"10°C": "1"})
+    assert resolved_winner(raw) is None
+
+
+def test_open_bracket_means_not_resolved(gamma_resolved_response):
+    raw = copy.deepcopy(gamma_resolved_response[0])
+    raw["markets"][0]["closed"] = False
+    assert resolved_winner(raw) is None

@@ -7,6 +7,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 
@@ -38,6 +39,12 @@ class Event:
     start_date: datetime
     end_date: datetime
     brackets: tuple[Bracket, ...]  # sorted from coldest to warmest
+    closed: bool = False  # no longer trading
+    winner_market_id: str | None = None  # set once Polymarket has resolved the event
+
+    @property
+    def resolved(self) -> bool:
+        return self.winner_market_id is not None
 
 
 _LABEL_RE = re.compile(r"^\s*(-?\d+)\s*°C(?:\s+or\s+(below|higher))?\s*$")
@@ -80,6 +87,25 @@ def parse_market(raw: dict[str, Any]) -> Bracket:
     )
 
 
+def resolved_winner(raw: dict[str, Any]) -> str | None:
+    """Market id of the winning bracket, or None if the event isn't fully resolved yet.
+
+    Resolved means: the event and every bracket are closed, every bracket's YES price is
+    exactly 0 or 1, and exactly one bracket's YES price is 1.
+    """
+    markets = raw.get("markets", [])
+    if not raw.get("closed") or not markets or not all(m.get("closed") for m in markets):
+        return None
+    yes_prices = {}
+    for m in markets:
+        prices = dict(zip(json.loads(m["outcomes"]), json.loads(m["outcomePrices"]), strict=True))
+        yes_prices[m["id"]] = Decimal(prices["Yes"])
+    if not all(p in (0, 1) for p in yes_prices.values()):
+        return None
+    winners = [market_id for market_id, p in yes_prices.items() if p == 1]
+    return winners[0] if len(winners) == 1 else None
+
+
 def _coldest_first(bracket: Bracket) -> float:
     return float("-inf") if bracket.lo_c is None else bracket.lo_c
 
@@ -96,4 +122,6 @@ def parse_event(raw: dict[str, Any]) -> Event:
         start_date=datetime.fromisoformat(raw["startDate"]),
         end_date=datetime.fromisoformat(raw["endDate"]),
         brackets=tuple(brackets),
+        closed=bool(raw.get("closed", False)),
+        winner_market_id=resolved_winner(raw),
     )

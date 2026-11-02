@@ -186,3 +186,25 @@ def test_rebuild_replaces_previous_database(tmp_path, raw_root):
     counts = build(raw_root, db)
     assert counts["events"] == 1
     assert not (tmp_path / "w.duckdb.building").exists()
+
+
+def test_official_results(tmp_path, raw_root, gamma_resolved_response):
+    resolved_at = datetime(2026, 11, 1, 23, 25, tzinfo=UTC)
+    append_record(
+        raw_root, _record("gamma_events", resolved_at, json.dumps(gamma_resolved_response))
+    )
+    build(raw_root, tmp_path / "w.duckdb")
+
+    with _connect(tmp_path / "w.duckdb") as con:
+        results = con.execute(
+            "SELECT target_date, winner_label, lo_c, hi_c, closed_time FROM official_results"
+        ).fetchall()
+        open_event = con.execute(
+            "SELECT closed, winner_market_id FROM events WHERE target_date = '2026-11-02'"
+        ).fetchone()
+
+    # Nov 1 is resolved (9°C); Nov 2 is still open, so it has no official result yet.
+    assert results == [
+        (date(2026, 11, 1), "9°C", 9, 9, datetime(2026, 11, 1, 23, 19, 31, tzinfo=UTC))
+    ]
+    assert open_event == (False, None)

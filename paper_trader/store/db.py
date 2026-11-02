@@ -175,7 +175,9 @@ def _insert_events(con: duckdb.DuckDBPyConnection) -> None:
         except (ValueError, KeyError) as exc:
             log.error("skipping event %s: %s", slug, exc)
             continue
-        con.execute("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", event_row)
+        con.execute(
+            "INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", event_row
+        )
         con.executemany("INSERT INTO brackets VALUES (?, ?, ?, ?, ?, ?, ?, ?)", bracket_rows)
 
 

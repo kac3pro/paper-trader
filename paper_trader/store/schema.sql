@@ -13,6 +13,9 @@ CREATE TABLE events (
     end_date          TIMESTAMPTZ,
     resolution_source VARCHAR,       -- the URL Polymarket resolves from
     description_hash  VARCHAR,       -- changes if the rules text is ever edited
+    closed            BOOLEAN NOT NULL,
+    closed_time       TIMESTAMPTZ,      -- when Polymarket closed it (= resolution, normally)
+    winner_market_id  VARCHAR,          -- official winning bracket; NULL until resolved
     first_seen_at     TIMESTAMPTZ NOT NULL,
     last_seen_at      TIMESTAMPTZ NOT NULL
 );
@@ -113,6 +116,18 @@ SELECT
     mid / sum(mid) OVER (PARTITION BY target_date, fetched_at) AS implied_prob
 FROM book_top
 WHERE mid IS NOT NULL;
+
+-- Polymarket's official result per event, once resolved.
+CREATE VIEW official_results AS
+SELECT
+    e.target_date,
+    e.event_id,
+    b.label AS winner_label,
+    b.lo_c,
+    b.hi_c,
+    e.closed_time
+FROM events e
+JOIN brackets b ON b.market_id = e.winner_market_id;
 
 -- PRELIMINARY daily max from METARs, for viewing only. The real resolution function
 -- (with Polymarket's exact rules and cut-off) is a later step.

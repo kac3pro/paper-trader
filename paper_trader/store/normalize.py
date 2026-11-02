@@ -16,6 +16,13 @@ def _hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
+def _parse_time(value: str | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+
 def event_rows(
     raw: dict[str, Any], first_seen_at: datetime, last_seen_at: datetime
 ) -> tuple[tuple, list[tuple]]:
@@ -31,6 +38,9 @@ def event_rows(
         event.end_date,
         raw.get("resolutionSource"),
         _hash(raw.get("description", "")),
+        event.closed,
+        _parse_time(raw.get("closedTime")),
+        event.winner_market_id,
         first_seen_at,
         last_seen_at,
     )

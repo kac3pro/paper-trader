@@ -11,11 +11,13 @@ from paper_trader.apps.collect import (
     SOURCE_METAR,
     CollectorState,
     Schedule,
+    dates_to_refresh,
     is_due,
     merge_events,
+    open_yes_token_ids,
     run_cycle,
     target_dates,
-    yes_token_ids,
+    tracked_window,
 )
 from paper_trader.domain.market import parse_event
 from paper_trader.domain.time import next_tick
@@ -31,7 +33,18 @@ METAR_TEXT = (
 
 @pytest.fixture
 def event(gamma_events_response):
-    return parse_event(gamma_events_response[0])  # target date 2026-11-02
+    return parse_event(gamma_events_response[0])  # target date 2026-11-02, still open
+
+
+@pytest.fixture
+def resolved(gamma_resolved_response):
+    return parse_event(gamma_resolved_response[0])  # target date 2026-11-01, won by 9°C
+
+
+def _on(event, day: int, *, resolved: bool):
+    """A copy of `event` moved to Nov `day`, either open or resolved."""
+    winner = event.brackets[0].market_id if resolved else None
+    return replace(event, target_date=date(2026, 11, day), closed=resolved, winner_market_id=winner)
 
 
 def test_target_dates_are_warsaw_today_plus_two():
@@ -63,10 +76,32 @@ def test_merge_events_prefers_fresh_keeps_old_and_drops_out_of_range(event):
     assert merged == (nov2_new, nov3_old)
 
 
-def test_yes_token_ids_skips_past_events(event):
-    yesterday = replace(event, target_date=date(2026, 11, 1))
-    tokens = yes_token_ids([yesterday, event], today=date(2026, 11, 2))
-    assert tokens == [b.yes_token_id for b in event.brackets]
+def test_open_yes_token_ids_skips_closed_events(event):
+    closed_yesterday = _on(event, 1, resolved=True)
+    still_trading_yesterday = _on(event, 1, resolved=False)
+    assert open_yes_token_ids([closed_yesterday, event]) == [b.yes_token_id for b in event.brackets]
+    assert len(open_yes_token_ids([still_trading_yesterday, event])) == 2 * len(event.brackets)
+
+
+def test_tracked_window_is_seven_days_back_to_two_ahead():
+    window = tracked_window(NOW)  # Warsaw date Nov 2
+    assert (window[0], window[-1], len(window)) == (date(2026, 10, 26), date(2026, 11, 4), 10)
+
+
+def test_dates_to_refresh_includes_yesterday_until_known_resolved(event):
+    upcoming = (date(2026, 11, 2), date(2026, 11, 3), date(2026, 11, 4))
+    assert dates_to_refresh([], NOW) == (date(2026, 11, 1), *upcoming)  # e.g. after a restart
+    assert dates_to_refresh([_on(event, 1, resolved=False)], NOW) == (date(2026, 11, 1), *upcoming)
+    assert dates_to_refresh([_on(event, 1, resolved=True)], NOW) == upcoming
+
+
+def test_dates_to_refresh_keeps_unresolved_past_events_for_seven_days(event):
+    oct27 = replace(event, target_date=date(2026, 10, 27), closed=False, winner_market_id=None)
+    oct25 = replace(event, target_date=date(2026, 10, 25), closed=False, winner_market_id=None)
+    events = [oct25, oct27]
+    refreshed = dates_to_refresh(events, NOW)
+    assert date(2026, 10, 27) in refreshed  # 6 days old: still trying
+    assert date(2026, 10, 25) not in refreshed  # 8 days old: given up
 
 
 @pytest.mark.parametrize(
@@ -83,14 +118,15 @@ def test_next_tick_lands_on_round_times(now, expected):
 # --- one full cycle against a fake network ------------------------------------------------
 
 
-def _fake_network(gamma_events_response, seen: list[httpx.Request]) -> httpx.Client:
-    listed_slug = gamma_events_response[0]["slug"]
+def _fake_network(*gamma_responses, seen: list[httpx.Request] | None = None) -> httpx.Client:
+    """Fake Gamma (serving the given event responses by slug), CLOB and METAR APIs."""
+    listed = {response[0]["slug"]: response for response in gamma_responses}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
+        if seen is not None:
+            seen.append(request)
         if request.url.host == "gamma-api.polymarket.com":
-            slug = request.url.params["slug"]
-            body = gamma_events_response if slug == listed_slug else []
+            body = listed.get(request.url.params["slug"], [])
             return httpx.Response(200, content=json.dumps(body))
         if request.url.host == "clob.polymarket.com" and request.url.path == "/books":
             return httpx.Response(200, content=json.dumps([]))
@@ -111,13 +147,14 @@ def _sources_archived(root) -> dict[str, int]:
 def test_first_cycle_fetches_everything(tmp_path, gamma_events_response, event):
     seen: list[httpx.Request] = []
 
-    with _fake_network(gamma_events_response, seen) as client:
+    with _fake_network(gamma_events_response, seen=seen) as client:
         state = run_cycle(client, tmp_path, CollectorState(), NOW, Schedule())
 
     assert state.events == (event,)  # only Nov 2 is "listed"
     assert state.events_refreshed_at == NOW
     assert state.metar_fetched_at == NOW
-    assert _sources_archived(tmp_path) == {SOURCE_EVENTS: 3, SOURCE_BOOKS: 1, SOURCE_METAR: 1}
+    # Events: yesterday (Nov 1, in case it's unresolved) plus Nov 2, 3 and 4.
+    assert _sources_archived(tmp_path) == {SOURCE_EVENTS: 4, SOURCE_BOOKS: 1, SOURCE_METAR: 1}
 
     books_request = next(r for r in seen if r.url.host == "clob.polymarket.com")
     requested = [item["token_id"] for item in json.loads(books_request.content)]
@@ -130,7 +167,7 @@ def test_first_cycle_fetches_everything(tmp_path, gamma_events_response, event):
 def test_next_cycle_fetches_only_books(tmp_path, gamma_events_response, event):
     state = CollectorState(events=(event,), events_refreshed_at=NOW, metar_fetched_at=NOW)
 
-    with _fake_network(gamma_events_response, []) as client:
+    with _fake_network(gamma_events_response) as client:
         new_state = run_cycle(client, tmp_path, state, NOW + timedelta(minutes=2), Schedule())
 
     assert new_state == state
@@ -141,7 +178,7 @@ def test_metar_and_events_follow_their_own_intervals(tmp_path, gamma_events_resp
     state = CollectorState(events=(event,), events_refreshed_at=NOW, metar_fetched_at=NOW)
     later = NOW + timedelta(minutes=10)  # METAR due (10 min), events not yet (15 min)
 
-    with _fake_network(gamma_events_response, []) as client:
+    with _fake_network(gamma_events_response) as client:
         new_state = run_cycle(client, tmp_path, state, later, Schedule())
 
     assert new_state == replace(state, metar_fetched_at=later)
@@ -159,3 +196,29 @@ def test_run_cycle_survives_network_errors(tmp_path):
     # Failed fetches count as done, so they are retried at their next interval, not every cycle.
     assert state.events_refreshed_at == NOW
     assert state.metar_fetched_at == NOW
+
+
+def test_past_event_is_followed_until_resolved(
+    tmp_path, gamma_events_response, gamma_resolved_response, event, resolved
+):
+    # 23:30 UTC on Nov 1 is 00:30 on Nov 2 in Warsaw: the Nov 1 event is "yesterday" now,
+    # still trading, and Polymarket is about to resolve it.
+    after_midnight = datetime(2026, 11, 1, 23, 30, tzinfo=UTC)
+    nov1_open = replace(resolved, closed=False, winner_market_id=None)
+    state = CollectorState(events=(nov1_open, event))
+
+    seen: list[httpx.Request] = []
+    with _fake_network(gamma_resolved_response, gamma_events_response, seen=seen) as client:
+        state = run_cycle(client, tmp_path, state, after_midnight, Schedule())
+
+        assert state.events[0] == resolved  # official result picked up
+        books_request = next(r for r in seen if r.url.host == "clob.polymarket.com")
+        requested = {item["token_id"] for item in json.loads(books_request.content)}
+        assert requested == {b.yes_token_id for b in event.brackets}  # closed Nov 1 dropped
+
+        # 15 min later the resolved event is remembered but no longer fetched.
+        seen.clear()
+        state = run_cycle(client, tmp_path, state, after_midnight + FIFTEEN_MIN, Schedule())
+        slugs = {r.url.params["slug"] for r in seen if r.url.host == "gamma-api.polymarket.com"}
+        assert resolved.slug not in slugs
+        assert state.events[0] == resolved

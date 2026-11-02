@@ -92,7 +92,7 @@ Until the trader runs live, nothing writes DuckDB continuously. The collector on
 | Source | What | How often | Backfillable? |
 |---|---|---|---|
 | Gamma API (`/events`, `/public-search`) | Event and bracket discovery, labels, token IDs, fee schedule, `acceptingOrders`, `closed`, final `outcomePrices` | every 15 min; after the target date, until resolved | partly |
-| CLOB `/books` (batch) | Full order book for the YES token of every bracket, for the events of Warsaw-local today, D+1 and D+2 (D+2 is listed by the morning of D) | every 2 min (could be every 1 min in the trading window) | **No. Must be recorded from now on.** |
+| CLOB `/books` (batch) | Full order book for the YES token of every bracket of every event still trading: Warsaw-local today, D+1 and D+2 (D+2 is listed by the morning of D), plus yesterday's event until it closes. Trading continues past `endDate` until resolution, ~00:20 Warsaw time on the next day | every 2 min (could be every 1 min in the trading window) | **No. Must be recorded from now on.** |
 | CLOB / data-api trades | Executed trades (for future maker-fill simulation) | every 15 min | partly |
 | aviationweather.gov METAR | EPWA reports | every 10 min | yes (Iowa Environmental Mesonet archive) |
 | dynamical.org `/v1/forecasts/runs` (GEFS) | Which 00Z runs exist. The first time a run appears in this list is its `available_at` | every 15 min (separate process, `apps/collect_forecasts`) | **no; record it** |
