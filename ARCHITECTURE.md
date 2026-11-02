@@ -89,7 +89,7 @@ Writers emit Parquet files (written to a temp file, then atomically renamed), an
 | Source | What | How often | Backfillable? |
 |---|---|---|---|
 | Gamma API (`/events`, `/public-search`) | Event and bracket discovery, labels, token IDs, fee schedule, `acceptingOrders`, `closed`, final `outcomePrices` | every 15 min; after the target date, until resolved | partly |
-| CLOB `/books` (batch) | Full order book for every bracket token | every 2 min while the event is open (could be every 1 min in the trading window) | **No. Must be recorded from now on.** |
+| CLOB `/books` (batch) | Full order book for the YES token of every bracket, for the events of Warsaw-local today, D+1 and D+2 (D+2 is listed by the morning of D) | every 2 min (could be every 1 min in the trading window) | **No. Must be recorded from now on.** |
 | CLOB / data-api trades | Executed trades (for future maker-fill simulation) | every 15 min | partly |
 | aviationweather.gov METAR | EPWA reports | every 10 min | yes (Iowa Environmental Mesonet archive) |
 | Open-Meteo ensemble API | Hourly 2m temperature for every ensemble member, for the model(s) the EMOS was trained on | poll hourly; store only when a **new run** appears | yes (Previous Runs / Historical Forecast APIs) |
@@ -175,7 +175,8 @@ Writers emit Parquet files (written to a temp file, then atomically renamed), an
 | tick_size | DECIMAL(6,4) | |
 
 Volume: about 22 tokens × 720 polls/day ≈ 16k rows/day, i.e. tens of MB per month. Fine.
-Note: in Polymarket's CLOB, the NO book should mirror the YES book (buying NO at p is equivalent to selling YES at 1−p). Store both at first; once the mirroring is confirmed, YES alone is enough.
+Confirmed 2026-11-02: the NO book mirrors the YES book exactly (NO bid at p = YES ask at 1−p, same size), so the collector fetches **YES tokens only**. The NO side is derived when needed.
+The CLOB returns levels **worst price first** (bids ascending, asks descending). The normalizer must reverse them to get the "best first" order used in this table.
 
 **`trades`**: executed trades, kept for future maker-fill modelling.
 

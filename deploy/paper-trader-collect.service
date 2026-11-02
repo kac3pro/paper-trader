@@ -1,0 +1,25 @@
+# systemd unit for the collector. Install on the VPS with:
+#
+#   sudo cp deploy/paper-trader-collect.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now paper-trader-collect
+#   journalctl -u paper-trader-collect -f        # follow the logs
+#
+# Replace CHANGE_ME with your VPS user, and check the uv path with `which uv`.
+
+[Unit]
+Description=Paper trader collector (Polymarket Warsaw max temperature)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=CHANGE_ME
+WorkingDirectory=/home/CHANGE_ME/paper-trader
+ExecStart=/home/CHANGE_ME/.local/bin/uv run --frozen --no-dev python -m paper_trader.apps.collect --data-dir data/raw
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
