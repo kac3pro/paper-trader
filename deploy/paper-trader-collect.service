@@ -20,6 +20,8 @@ ExecStart=/home/CHANGE_ME/.local/bin/uv run --frozen --no-dev python -m paper_tr
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
+# The VPS has no IPv4 and uv's Python downloads come from GitHub; use Debian's python3.
+Environment=UV_PYTHON_DOWNLOADS=never
 
 [Install]
 WantedBy=multi-user.target
