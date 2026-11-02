@@ -95,8 +95,8 @@ Until the trader runs live, nothing writes DuckDB continuously. The collector on
 | CLOB `/books` (batch) | Full order book for the YES token of every bracket, for the events of Warsaw-local today, D+1 and D+2 (D+2 is listed by the morning of D) | every 2 min (could be every 1 min in the trading window) | **No. Must be recorded from now on.** |
 | CLOB / data-api trades | Executed trades (for future maker-fill simulation) | every 15 min | partly |
 | aviationweather.gov METAR | EPWA reports | every 10 min | yes (Iowa Environmental Mesonet archive) |
-| Open-Meteo ensemble API | Hourly 2m temperature for every ensemble member, for the model(s) the EMOS was trained on | poll hourly; store only when a **new run** appears | yes (Previous Runs / Historical Forecast APIs) |
-| Open-Meteo model metadata (`.../static/meta.json`) | `last_run_initialisation_time`, `last_run_availability_time` | with each forecast poll | no; record it |
+| dynamical.org `/v1/forecasts/runs` (GEFS) | Which 00Z runs exist. The first time a run appears in this list is its `available_at` | every 15 min (separate process, `apps/collect_forecasts`) | **no; record it** |
+| dynamical.org `/v1/forecasts` (GEFS) | EPWA point forecast, all 31 members, `temperature_2m` + `maximum_temperature_2m`, leads 0–72 h. Snaps to grid cell 52.25 N, 21.0 E | once per new run | yes (runs back to 2020-10-01) |
 
 **Start the collector before anything else.** Order book history is the only data that can't be reconstructed later.
 

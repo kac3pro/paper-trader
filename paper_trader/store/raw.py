@@ -15,13 +15,16 @@ crash mid-write can only damage the last record, never earlier ones.
 
 import gzip
 import json
+import logging
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 _SOURCE_RE = re.compile(r"^[a-z0-9_]+$")
 
@@ -102,3 +105,18 @@ def read_records(path: Path) -> Iterator[RawRecord]:
                 yield from_json_line(line)
         except (EOFError, gzip.BadGzipFile, json.JSONDecodeError):
             return
+
+
+def fetch_and_archive(
+    root: Path, source: str, request: Callable[[], httpx.Response]
+) -> httpx.Response | None:
+    """Run one request and archive the response. Returns None if no response arrived."""
+    try:
+        response = request()
+    except httpx.HTTPError as exc:
+        log.warning("%s: request failed: %s", source, exc)
+        return None
+    append_record(root, record_from_response(source, response, datetime.now(UTC)))
+    if response.is_error:
+        log.warning("%s: HTTP %s", source, response.status_code)
+    return response

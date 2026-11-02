@@ -14,7 +14,7 @@ and skipped; the loop never stops because of one.
 import argparse
 import logging
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
@@ -26,8 +26,8 @@ from paper_trader.adapters.clob import get_books_response
 from paper_trader.adapters.gamma import event_from_response, get_event_response, warsaw_event_slug
 from paper_trader.adapters.metar import get_metar_response
 from paper_trader.domain.market import Event, parse_event
-from paper_trader.domain.time import warsaw_date
-from paper_trader.store.raw import append_record, record_from_response
+from paper_trader.domain.time import next_tick, warsaw_date
+from paper_trader.store.raw import fetch_and_archive
 
 log = logging.getLogger("paper_trader.collect")
 
@@ -80,28 +80,7 @@ def yes_token_ids(events: Iterable[Event], today: date) -> list[str]:
     return [b.yes_token_id for e in events if e.target_date >= today for b in e.brackets]
 
 
-def next_tick(now: datetime, interval: timedelta) -> datetime:
-    """The next multiple of `interval` since the epoch, so polls land on round times."""
-    step = interval.total_seconds()
-    return datetime.fromtimestamp((now.timestamp() // step + 1) * step, tz=UTC)
-
-
 # --- impure shell -------------------------------------------------------------------------
-
-
-def fetch_and_archive(
-    root: Path, source: str, request: Callable[[], httpx.Response]
-) -> httpx.Response | None:
-    """Run one request and archive the response. Returns None if no response arrived."""
-    try:
-        response = request()
-    except httpx.HTTPError as exc:
-        log.warning("%s: request failed: %s", source, exc)
-        return None
-    append_record(root, record_from_response(source, response, datetime.now(UTC)))
-    if response.is_error:
-        log.warning("%s: HTTP %s", source, response.status_code)
-    return response
 
 
 def refresh_events(client: httpx.Client, root: Path, dates: Iterable[date]) -> list[Event]:

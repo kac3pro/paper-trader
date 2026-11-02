@@ -1,0 +1,29 @@
+# systemd unit for the GEFS forecast collector (separate from the market collector).
+# Install on the VPS (fills in your user; the repo copy stays a template, so `git push vps`
+# keeps working):
+#
+#   sed "s/CHANGE_ME/$USER/g" deploy/paper-trader-forecasts.service | sudo tee /etc/systemd/system/paper-trader-forecasts.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now paper-trader-forecasts
+#   journalctl -u paper-trader-forecasts -f        # follow the logs
+#
+# Check the uv path in ExecStart with `which uv`.
+
+[Unit]
+Description=Paper trader forecast collector (GEFS via dynamical.org, EPWA)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=CHANGE_ME
+WorkingDirectory=/home/CHANGE_ME/paper-trader
+ExecStart=/home/CHANGE_ME/.local/bin/uv run --frozen --no-dev python -m paper_trader.apps.collect_forecasts --data-dir data/raw
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+# The VPS has no IPv4 and uv's Python downloads come from GitHub; use Debian's python3.
+Environment=UV_PYTHON_DOWNLOADS=never
+
+[Install]
+WantedBy=multi-user.target

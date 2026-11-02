@@ -13,12 +13,12 @@ from paper_trader.apps.collect import (
     Schedule,
     is_due,
     merge_events,
-    next_tick,
     run_cycle,
     target_dates,
     yes_token_ids,
 )
 from paper_trader.domain.market import parse_event
+from paper_trader.domain.time import next_tick
 from paper_trader.store.raw import read_records
 
 FIFTEEN_MIN = timedelta(minutes=15)

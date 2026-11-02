@@ -1,11 +1,13 @@
-# systemd unit for the collector. Install on the VPS with:
+# systemd unit for the market collector (events, order books, METARs).
+# Install on the VPS (fills in your user; the repo copy stays a template, so `git push vps`
+# keeps working):
 #
-#   sudo cp deploy/paper-trader-collect.service /etc/systemd/system/
+#   sed "s/CHANGE_ME/$USER/g" deploy/paper-trader-collect.service | sudo tee /etc/systemd/system/paper-trader-collect.service
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now paper-trader-collect
 #   journalctl -u paper-trader-collect -f        # follow the logs
 #
-# Replace CHANGE_ME with your VPS user, and check the uv path with `which uv`.
+# Check the uv path in ExecStart with `which uv`.
 
 [Unit]
 Description=Paper trader collector (Polymarket Warsaw max temperature)
